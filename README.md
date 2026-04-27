@@ -21,11 +21,11 @@ Each of the 1,000 unique deepfake samples was tested once against the enrolled r
 | Metric | Value |
 |--------|-------|
 | Deepfake rejection rate | **100%** (1,000/1,000 blocked) |
-| Real voice acceptance | **100%** (combined 179.57) |
+| Real voice acceptance | **100%** (combined 179.67) |
 | Combined threshold | **177.5** (voice-engine 1 + voice-engine 2) |
-| Real voice margin | **+2.07** above threshold |
-| Best deepfake combined | **176.98** (0.52 below threshold) |
-| Deepfake combined mean | 149.49 |
+| Real voice margin | **+2.17** above threshold |
+| Best deepfake combined | **177.36** (0.14 below threshold) |
+| Deepfake combined mean | 150.02 |
 | Text confidence (deepfake mean) | 97.27 |
 
 ### Engine Breakdown
@@ -33,10 +33,10 @@ Each of the 1,000 unique deepfake samples was tested once against the enrolled r
 | Engine | Real Voice | Deepfake Mean | Deepfake Max | Deepfake Min |
 |--------|-----------|---------------|--------------|--------------|
 | Voice-Engine 1 | 84.91 | 62.95 | 87.90 | 28.91 |
-| Voice-Engine 2 | 94.66 | 86.54 | 93.07 | 79.02 |
-| Combined | 179.57 | 149.49 | 176.98 | 109.65 |
+| Voice-Engine 2 | 94.76 | 87.07 | 91.91 | 80.93 |
+| Combined | 179.67 | 150.02 | 177.36 | 109.93 |
 
-Voice-engine 1 does the heavy lifting against deepfakes — deepfake voice-engine 1 scores average 21.96 points below the real voice. Deepfakes score high on voice-engine 2 (mean 86.54, close to real 94.66) because they sound like the target speaker to neural embeddings. But voice-engine 1's vocal tract analysis catches the synthesis artifacts, and the combined threshold ensures neither engine alone can pass a fake.
+Voice-engine 1 does the heavy lifting against deepfakes — deepfake voice-engine 1 scores average 21.96 points below the real voice. Deepfakes score high on voice-engine 2 (mean 87.07, close to real 94.76) because they sound like the target speaker to neural embeddings. But voice-engine 1's vocal tract analysis catches the synthesis artifacts, and the combined threshold ensures neither engine alone can pass a fake.
 
 ### Graphs
 
@@ -96,7 +96,7 @@ VoiceIt API 3.0 uses two independent voice biometric engines with a combined thr
 - **Voice-Engine 1** - Analyzes Linear Prediction Coefficients (physiological vocal tract characteristics). Tunable parameters: frame length, LP degrees, accuracy, confidence threshold, noise removal
 - **Voice-Engine 2** - Analyzes neural speaker embeddings (192-dimensional voice representation). Tunable parameter: confidence threshold
 
-Verification passes only when voice-engine 1 + voice-engine 2 combined score exceeds the combined threshold (177.5). This prevents deepfakes from passing by fooling just one engine. Across 1,000 deepfake verification attempts, the best combined score was 176.98 (0.52 below threshold) while the real voice scored 179.57 (2.07 above).
+Verification passes only when voice-engine 1 + voice-engine 2 combined score exceeds the combined threshold (177.5). This prevents deepfakes from passing by fooling just one engine. Across 1,000 deepfake verification attempts, the best combined score was 177.36 (0.14 below threshold) while the real voice scored 179.67 (2.17 above).
 
 ## Running the Tests
 
