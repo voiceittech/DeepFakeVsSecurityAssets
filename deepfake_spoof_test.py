@@ -18,14 +18,21 @@ import glob
 import argparse
 import requests
 import statistics
+import hashlib
+import re
 from datetime import datetime
 from itertools import cycle
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
 API_BASE = os.environ.get("API_BASE_URL", "https://api.voiceit.io")
-API_KEY = os.environ.get("SPOOF_API_KEY", "")
-API_TOKEN = os.environ.get("SPOOF_API_TOKEN", "")
+API_KEY = os.environ.get("SPOOF_API_KEY")
+API_TOKEN = os.environ.get("SPOOF_API_TOKEN")
+
+if not API_KEY or not API_TOKEN:
+    print("ERROR: SPOOF_API_KEY and SPOOF_API_TOKEN environment variables must be set")
+    sys.exit(1)
+
 AUTH = (API_KEY, API_TOKEN)
 HEADERS = {"platformId": "31", "platformVersion": "DEEPFAKE_TEST"}
 
@@ -40,24 +47,46 @@ print_lock = threading.Lock()
 
 def api(method, endpoint, **kwargs):
     url = f"{API_BASE}{endpoint}"
-    resp = requests.request(method, url, auth=AUTH, headers=HEADERS, **kwargs)
+    resp = requests.request(method, url, auth=AUTH, headers=HEADERS, verify=True, **kwargs)
+    
+    if resp.status_code >= 400:
+        error_msg = f"API Error {resp.status_code}: {resp.text}"
+        print(f"ERROR: {error_msg}")
+        return {"error": error_msg, "responseCode": "FAIL"}
+    
     return resp.json()
 
 def create_user():
     data = api("POST", "/users")
-    print(f"[CREATE USER] {data['responseCode']} — userId: {data.get('userId', 'N/A')}")
-    return data.get("userId")
+    if data.get("responseCode") == "SUCC":
+        print(f"[CREATE USER] {data['responseCode']} — userId: {data.get('userId', 'N/A')}")
+        return data.get("userId")
+    return None
+
+import re
 
 def delete_user(user_id):
+    if not re.match(r'^usr_[a-f0-9]{32}$', user_id):
+        print(f"ERROR: Invalid user_id format: {user_id}")
+        return
     data = api("DELETE", f"/users/{user_id}")
-    print(f"[DELETE USER] {data['responseCode']}")
+    if data.get("responseCode") == "SUCC":
+        print(f"[DELETE USER] {data['responseCode']}")
 
 def enroll_voice(user_id, audio_path):
     fname = os.path.basename(audio_path)
-    with open(audio_path, "rb") as f:
-        files = {"recording": (fname, f, "audio/wav")}
-        form = {"userId": user_id, "contentLanguage": CONTENT_LANG, "phrase": PHRASE}
-        data = api("POST", "/enrollments/voice", data=form, files=files)
+    try:
+        with open(audio_path, "rb") as f:
+            files = {"recording": (fname, f, "audio/wav")}
+            form = {"userId": user_id, "contentLanguage": CONTENT_LANG, "phrase": PHRASE}
+            data = api("POST", "/enrollments/voice", data=form, files=files)
+    except FileNotFoundError:
+        print(f"ERROR: Audio file not found: {audio_path}")
+        return None
+    except PermissionError:
+        print(f"ERROR: Permission denied reading: {audio_path}")
+        return None
+    
     status = data.get("responseCode", "UNKNOWN")
     print(f"  [ENROLL] {fname}: {status} — {data.get('message', '')}")
     return data
@@ -66,11 +95,21 @@ def verify_voice(user_id, audio_path):
     fname = os.path.basename(audio_path)
     ext = os.path.splitext(fname)[1].lower()
     mime = "audio/wav" if ext == ".wav" else "audio/mpeg"
-    with open(audio_path, "rb") as f:
-        files = {"recording": (fname, f, mime)}
-        form = {"userId": user_id, "contentLanguage": CONTENT_LANG, "phrase": PHRASE}
-        data = api("POST", "/verification/voice", data=form, files=files)
-    # Flatten extendedVoiceValues to top level for easier access
+    try:
+        with open(audio_path, "rb") as f:
+            files = {"recording": (fname, f, mime)}
+            form = {"userId": user_id, "contentLanguage": CONTENT_LANG, "phrase": PHRASE}
+            data = api("POST", "/verification/voice", data=form, files=files)
+    except FileNotFoundError:
+        print(f"ERROR: Audio file not found: {audio_path}")
+        return None
+    except PermissionError:
+        print(f"ERROR: Permission denied reading: {audio_path}")
+        return None
+    
+    if data is None:
+        return None
+    
     ext_vals = data.get("extendedVoiceValues", {})
     if ext_vals:
         data["siv1Confidence"] = ext_vals.get("siv1Confidence")
@@ -80,6 +119,8 @@ def verify_voice(user_id, audio_path):
 def verify_worker(user_id, attempt_num, audio_path, target_count, counters):
     """Worker function for concurrent verification."""
     data = verify_voice(user_id, audio_path)
+    if data is None:
+        return None
     fname = os.path.basename(audio_path)
     conf = data.get("confidence", "N/A")
     code = data.get("responseCode", "UNKNOWN")
@@ -223,7 +264,8 @@ def main():
             for future in as_completed(futures):
                 try:
                     result = future.result()
-                    fake_results.append(result)
+                    if result is not None:
+                        fake_results.append(result)
                 except Exception as e:
                     attempt_num = futures[future]
                     print(f"  [ERROR] Attempt {attempt_num}: {e}")
@@ -326,12 +368,13 @@ def main():
         real_siv1 = [r["siv1Confidence"] for r in real_results if "siv1Confidence" in r and isinstance(r["siv1Confidence"], (int, float))]
         real_siv2 = [r["siv2Confidence"] for r in real_results if "siv2Confidence" in r and isinstance(r["siv2Confidence"], (int, float))]
 
-        # Save results
+        hashed_user_id = hashlib.sha256(user_id.encode()).hexdigest()[:16]
+        
         output = {
             "timestamp": datetime.now().isoformat(),
             "phrase": PHRASE,
             "contentLanguage": CONTENT_LANG,
-            "userId": user_id,
+            "userIdHash": hashed_user_id,
             "targetCount": target_count,
             "uniqueSamples": len(fake_files),
             "concurrency": max_workers,
